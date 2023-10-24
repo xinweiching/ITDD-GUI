@@ -11,9 +11,9 @@ class MainWindow(QMainWindow):
         self.uiMain = Ui_MainWindow()
         self.uiMain.setupUi(self)
         self.initialise()
-        self.resize(1200, 600)
+        self.resize(1200, 700)
         self.centerOnScreen()
-        self.setMaximumSize(1200, 600)
+        self.setMaximumSize(1200, 800)
 
         self.currentImage_path = None
         self.currentImage = None
