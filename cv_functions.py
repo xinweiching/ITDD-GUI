@@ -1,12 +1,11 @@
 import cv2
-import os
-import sys
 from os import listdir
 import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
 from mpl_toolkits import mplot3d
 import matplotlib.pyplot as plt
+from PyQt5.QtCore import QObject, QThread, pyqtSignal
 from copy import deepcopy
 
 def incr_contrast(img, clip_limit=2):
@@ -34,140 +33,109 @@ def incr_contrast(img, clip_limit=2):
 
     return result_image
 
+def incr_contrast_cv(cv_img, clip_limit=2):
+    # input is cv img
 
-########################################## EDGE DETECTORS ##########################################
+    # converting to LAB color space
+    lab = cv2.cvtColor(cv_img, cv2.COLOR_BGR2LAB)
+    l_channel, a, b = cv2.split(lab)
 
-def edge_detector_view(image_path, threshold_1=100, threshold_2=300):
-    image = cv2.imread(image_path)
-    image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    # Applying CLAHE to L-channel
+    # feel free to try different values for the limit and grid size:
+    clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=(8,8))
+    cl = clahe.apply(l_channel)
 
-    # apply Canny edge detection
-    edges = cv2.Canny(image=image_rgb, threshold1=threshold_1, threshold2=threshold_2)
+    # merge the CLAHE enhanced L-channel with the a and b channel
+    limg = cv2.merge((cl,a,b))
 
-    fig, axs = plt.subplots(1, 2, figsize=(7,4))
-    axs[0].imshow(image_rgb)
-    axs[0].set_title("Original Image")
+    # Converting image from LAB Color model to BGR color spcae
+    enhanced_img = cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
 
-    axs[1].imshow(edges)
-    axs[1].set_title("Image edges")
+    return enhanced_img
 
-    for ax in axs: 
-        ax.set_xticks([])
-        ax.set_yticks([])
+class Extractor(QObject):
+    finished = pyqtSignal(int)
+    progress = pyqtSignal(int)
+    def __init__(self, video_path, output_folder_path, preprocess=False, resize_pred=False, frame_count = -1):
+        super().__init__()
+        self.count = 0
+        self.video_path = video_path
+        self.output_path = output_folder_path
+        self.preprocess_bool = preprocess
+        self.resize_bool = resize_pred
+        self.frame_count = -1
 
-    plt.tight_layout()
-    plt.show()
+        # count the number of frames
+        vidObj = cv2.VideoCapture(self.video_path)
+        self.fps = vidObj.get(cv2.CAP_PROP_FPS)
+        self.total_frames_count = int(vidObj.get(cv2.CAP_PROP_FRAME_COUNT))
+        self.durationInSeconds = self.total_frames_count // self.fps
+        vidObj.release()
 
-def edge_detector_save(image_path, output_folder=None, threshold_1=100, threshold_2=300):
-    image = cv2.imread(image_path)
-    image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    name = image_path.split('/')[-1].split('.')[0]  
+    def run(self):
+        self.run_bool = True
+        vidObj = cv2.VideoCapture(self.video_path)
+        if not vidObj.isOpened():
+            print("Error: Could not open file:", self.video_path)
+            self.finished.emit(0)
+        
+        image_name = self.video_path.split('/')[-1].split('.')[0]
+        success = 1
+        too_large = None
+        read_fail_limit = 4096
+        read_fail_count = 0
 
-    # apply Canny edge detection
-    edges = cv2.Canny(image=image_rgb, threshold1=threshold_1, threshold2=threshold_2)
+        while self.run_bool:
+            read_success, image = vidObj.read()
+            if not read_success:
+                read_fail_count += 1
+                if read_fail_count > read_fail_limit: 
+                    self.finished.emit(0)
+                    break
 
-    if output_folder == None:
-        cv2.imwrite(f'output/{name}_edges.jpg', edges)
-    else:
-        if output_folder[-1] != '/':
-            cv2.imwrite(output_folder + f'/{name}_edges.jpg', edges)
-        else:
-            cv2.imwrite(output_folder + f'{name}_edges.jpg', edges)
+            try:
+                # preprocess
+                if self.preprocess_bool:
+                    enhanced_img = incr_contrast_cv(cv_img=image, clip_limit=5)
+                else:
+                    enhanced_img = image
+                
+                # check if too large if have not
+                if too_large == None:
+                    h, w = enhanced_img.shape[0], enhanced_img.shape[1] # (h, w, c)
+                    longer = h if h>w else w
+                    shorter = h if h<w else w
+                    too_large = True if longer > 1280 or shorter > 960 else False
 
-########################################## GETTERS ##########################################
+                # resize if checked and larger than needed
+                if self.resize_bool and too_large:
+                    dim = (1280, 960) if longer == w else (960, 1280) # (w, h)
+                    sized_img = cv2.resize(enhanced_img, dim) 
+                else:
+                    sized_img = enhanced_img
 
-def get_image_dimensions(image_path):
-    image = cv2.imread(image_path)
-    height, width, channels = image.shape
-    return height, width
+                # save in output folder
+                cv2.imwrite(f"{self.output_path}/{image_name}_frame{self.count_to_string()}.jpg", sized_img)
+                self.count += 1
+                self.progress.emit(self.count)
 
-def get_d32(old_height, old_width, new_height=None, new_width=None):
-    if new_width != None and new_height == None:
-        new_w = new_width
-        new_h = int(round((old_height / old_width) * new_width, 0))
-    else:
-        print("Write this code pls.")
-        return 
-    print(f'New dimensions in multiple of 32 is ({new_w}, {new_h}).')
-
-########################################## RESIZE ##########################################
-
-def resize_save(image_path, output_folder, new_width, new_height):
-    image = cv2.imread(image_path)
-    new_image = cv2.resize(image, (new_width, new_height))
-    name = image_path.split('/')[-1].split('.')[0]
-    if output_folder[-1] != '/':
-        cv2.imwrite(output_folder + f'/{name}.jpg', new_image)
-    else:
-        cv2.imwrite(output_folder + f'{name}.jpg', new_image)
-
-def resize_byFactor_save(image_path, output_folder=None, fx=0.5, fy=0.5):
-    image = cv2.imread(image_path)
-    new_image = cv2.resize(image, (0,0), fx=fx, fy=fy)
-    name = image_path.split('/')[-1].split('.')[0]  
-    if output_folder == None:
-        cv2.imwrite(output_folder + f"/{name}_scaled.jpg", new_image)
-    else:
-        if output_folder[-1] != '/':
-            cv2.imwrite(output_folder + f'/{name}_scaled.jpg', new_image)
-        else:
-            cv2.imwrite(output_folder + f'{name}_scaled.jpg', new_image)
-
-def resize_byFactor_all(input_folder, output_folder=None, fx=1, fy=1):
-    for image in os.listdir(input_folder):
-        resize_byFactor_save(input_folder + f"/{image}", output_folder, 0.4, 0.4)
-        print(image)
-
-########################################## SPLIT ##########################################
-
-def split_image_in_4(image_path, output_folder):
-    image = cv2.imread(image_path)
-    old_h, old_w = get_image_dimensions(image_path)
-    new_name = '_'.join(image_path.split('/')[-1].split('.')[0].split('_')[:-1])
-
-    crop_1 = image[:old_h//2, :old_w//2]
-    crop_2 = image[:old_h//2, old_w//2:]
-    crop_3 = image[old_h//2:, :old_w//2]
-    crop_4 = image[old_h//2:, old_w//2:]
-
-    if output_folder[-1] != '/':
-        cv2.imwrite(output_folder + f'/{new_name}_1.jpg', crop_1)
-        cv2.imwrite(output_folder + f'/{new_name}_2.jpg', crop_2)
-        cv2.imwrite(output_folder + f'/{new_name}_3.jpg', crop_3)
-        cv2.imwrite(output_folder + f'/{new_name}_4.jpg', crop_4)
-    else:
-        cv2.imwrite(output_folder + f'{new_name}_1.jpg', crop_1)
-        cv2.imwrite(output_folder + f'{new_name}_2.jpg', crop_2)
-        cv2.imwrite(output_folder + f'{new_name}_3.jpg', crop_3)
-        cv2.imwrite(output_folder + f'{new_name}_4.jpg', crop_4)
+            except Exception as error: # skip frames that has unidentified error
+                print("An exception occurred:", error)
+                self.count += 1
 
 
-########################################## VIDEOS ##########################################
+            if self.count > self.total_frames_count:
+                break
+        
+        vidObj.release()
+        if not self.run_bool: # if cancelled by user
+            self.finished.emit(2)
+        else: # else it is complete
+            self.finished.emit(1)
 
-def preprocess_frames(video_path, output_folder, frame_count=-1):
-    vidObj = cv2.VideoCapture(video_path)
-    count = 0
-    success = 1
-    while success:
-        success, image = vidObj.read()
-
-        try:
-            # print(f"count:{count} , success:{success}")
-
-            # preprocess
-            enhanced_img = incr_contrast(image_path=image, clip_limit=5, save=False)
-            sized_img = cv2.resize(enhanced_img, (800, 800))
-
-            # save in output folder
-            cv2.imwrite(f"{output_folder}/frame{count_to_string(count)}.jpg", sized_img)
-            count += 1
-        except:
-            success = 1
-            count += 1
-
-        if frame_count != -1 and count >= frame_count:
-            break
-
-def count_to_string(count):
-    l = 8
-    return "0"*(l-len(str(count))) + str(count)
+    def count_to_string(self):
+        l = 8
+        return "0"*(l-len(str(self.count))) + str(self.count)
+    
+    def stop_run(self, bool):
+        self.run_bool = not bool
