@@ -4,7 +4,7 @@ from PIL import Image
 from ultralytics import YOLO
 from PyQt5 import QtCore
 from PyQt5.QtCore import QObject, QThread, pyqtSignal
-from cv_functions import incr_contrast, Extractor
+from cv_functions import incr_contrast, Extractor, VideoCreator
 from time import sleep
 
 
@@ -13,11 +13,14 @@ class ITDD(MainWindow):
         super(ITDD, self).__init__(parent)
 
         # Buttons
+        self.uiMain.createVideo_Button.clicked.connect(self.createVideoButton_clicked)
         self.uiMain.extract_Button.clicked.connect(self.extractButton_clicked)
         self.uiMain.openFile_Button.clicked.connect(self.openFileButton_clicked)
+        self.uiMain.openSrcPhotosPath_Button.clicked.connect(self.openSrcPhotosPathButton_clicked)
         self.uiMain.openSrcVideo_Button.clicked.connect(self.openSrcVideoButton_clicked)
         self.uiMain.predict_Button.clicked.connect(self.predictButton_clicked)
         self.uiMain.selectOutputFolder_Button.clicked.connect(self.selectOutputFolder_clicked)
+        self.uiMain.selectVidOutFolder_Button.clicked.connect(self.selectOutputVidFolder_clicked)
         self.uiMain.saveFile_Button.clicked.connect(self.saveFileButton_clicked)
         self.uiMain.saveTable_Button.clicked.connect(self.saveTableButton_clicked)
         self.uiMain.sortClass_Button.clicked.connect(self.sortClassButton_clicked)
@@ -41,10 +44,21 @@ class ITDD(MainWindow):
 
     #------------ BUTTON CLICKS ------------ #
 
+    def createVideoButton_clicked(self):
+        # create video if input and output paths are not empty
+        if self.srcPhotos_path != "" and self.outputVideo_path != "" and self.uiMain.videoName_lineEdit.text() != "":
+            self.create_video_frmImages()
+        if self.srcPhotos_path == "":
+            self.dialog_missingPaths(2)
+        if self.outputVideo_path == "":
+            self.dialog_missingPaths(3)
+        if self.uiMain.videoName_lineEdit.text() == "":
+            self.dialog_missingPaths(4)
+        pass
+
     def extractButton_clicked(self):
         # extract video frames if input and output paths are not empty
         if self.srcVideo_path != "" and self.outputFolder_path != "":
-            # extract_frames(video_path=self.srcVideo_path, output_folder=self.outputFolder_path, preprocess=self.get_preprocessVid(), resize_pred=self.get_resize())
             self.extract_video_frames()
         if self.srcVideo_path == "":
             self.dialog_missingPaths(0)
@@ -63,6 +77,11 @@ class ITDD(MainWindow):
 
         self.uiMain.openFile_Button.setEnabled(True)
     
+    def openSrcPhotosPathButton_clicked(self):
+        self.uiMain.openSrcPhotosPath_Button.setEnabled(False)
+        self.select_input_folder()
+        self.uiMain.openSrcPhotosPath_Button.setEnabled(True)
+
     def openSrcVideoButton_clicked(self):
         self.uiMain.openSrcVideo_Button.setEnabled(False)
         self.open_vidfile()
@@ -94,6 +113,11 @@ class ITDD(MainWindow):
         self.uiMain.selectOutputFolder_Button.setEnabled(False)
         self.select_output_folder()
         self.uiMain.selectOutputFolder_Button.setEnabled(True)
+
+    def selectOutputVidFolder_clicked(self):
+        self.uiMain.selectVidOutFolder_Button.setEnabled(False)
+        self.select_outputvid_folder()
+        self.uiMain.selectVidOutFolder_Button.setEnabled(True)
 
     def sortClassButton_clicked(self):
         self.uiMain.sortClass_Button.setEnabled(False)
@@ -149,6 +173,69 @@ class ITDD(MainWindow):
 
     # ------------- FUNCTIONS ------------- #
     
+    def create_video_frmImages(self):
+        self.thread = QThread()
+        self.worker = VideoCreator(
+            input_folder_path=self.srcPhotos_path, 
+            output_folder_path=self.outputVideo_path, 
+            video_name=self.get_videoname())
+        self.worker.moveToThread(self.thread)
+
+        self.total_frames_no = self.worker.image_count
+        proceed = self.dialog_confirm_create(self.total_frames_no)
+        if proceed:
+            self.dialog_progress_init()
+            self.progress_dialog.ui.extractProgress_label.setText(f"Creating video from photos (0/{self.total_frames_no + 1})...")
+            # connect signals
+            self.thread.started.connect(self.dialog_progress_start)
+            self.thread.started.connect(self.worker.run)
+            self.worker.finished.connect(self.thread.quit)
+            self.worker.finished.connect(self.worker.deleteLater)
+            self.thread.finished.connect(self.thread.deleteLater)
+            self.worker.progress.connect(self.report_progress_create)
+            self.progress_dialog.ui.cancelExtract_Button.clicked.connect(lambda: self.worker.stop_run(True))
+            
+            # start thread
+            self.thread.start()
+            self.uiMain.createVideo_Button.setEnabled(False)
+
+            # when complete
+            self.worker.finished.connect(self.report_create_result)
+            self.thread.finished.connect(lambda: self.uiMain.createVideo_Button.setEnabled(True))
+            self.thread.finished.connect(self.progress_dialog.accept)
+
+    def extract_video_frames(self):
+        self.thread = QThread()
+        self.worker = Extractor(video_path=self.srcVideo_path, 
+                                output_folder_path=self.outputFolder_path, 
+                                preprocess=self.get_preprocessVid(), 
+                                resize_pred=self.get_resize())
+        self.worker.moveToThread(self.thread)
+
+        self.total_frames_no = self.worker.total_frames_count
+        # give warning for video with many frames 
+        proceed = self.dialog_confirm_extract(self.total_frames_no)
+        
+        if proceed:
+            self.dialog_progress_init() # init progress dialog
+            # connect signals 
+            self.thread.started.connect(self.dialog_progress_start)
+            self.thread.started.connect(self.worker.run)
+            self.worker.finished.connect(self.thread.quit)
+            self.worker.finished.connect(self.worker.deleteLater)
+            self.thread.finished.connect(self.thread.deleteLater)
+            self.worker.progress.connect(self.report_progress)
+            self.progress_dialog.ui.cancelExtract_Button.clicked.connect(lambda: self.worker.stop_run(True))
+
+            # start thread
+            self.thread.start()
+            self.uiMain.extract_Button.setEnabled(False)
+
+            # when complete
+            self.worker.finished.connect(self.report_extract_result)
+            self.thread.finished.connect(lambda: self.uiMain.extract_Button.setEnabled(True))
+            self.thread.finished.connect(self.progress_dialog.accept)
+    
     def predict_image(self, preprocess=False):
         if preprocess: 
             path = self.currentImgProcessed_path
@@ -170,39 +257,13 @@ class ITDD(MainWindow):
         conf_ls = [float(j) for j in conf]
         return result, classes_ls, conf_ls
     
-    def extract_video_frames(self):
-        self.thread = QThread()
-        self.worker = Extractor(video_path=self.srcVideo_path, output_folder_path=self.outputFolder_path, preprocess=self.get_preprocessVid(), resize_pred=self.get_resize())
-        self.worker.moveToThread(self.thread)
-
-        self.total_frames_no = self.worker.total_frames_count
-        # give warning for video with many frames 
-        proceed = self.dialog_confirm_extract(self.total_frames_no)
-        
-        if proceed:
-            self.dialog_progress_init() # init progress dialog
-            # connect signals 
-            self.thread.started.connect(self.dialog_progress_start)
-            self.thread.started.connect(self.worker.run)
-            self.worker.finished.connect(self.thread.quit)
-            self.worker.finished.connect(self.worker.deleteLater)
-            self.thread.finished.connect(self.thread.deleteLater)
-            self.worker.progress.connect(self.report_progress)
-            self.progress_dialog.ui.cancelExtract_Button.clicked.connect(lambda: self.worker.stop_run(True))
-
-            # start thread
-            self.thread.start()
-            self.uiMain.extract_Button.setEnabled(False)
-            # self.dialog_progress_start()
-
-            # when complete
-            self.worker.finished.connect(self.report_extract_result)
-            self.thread.finished.connect(lambda: self.uiMain.extract_Button.setEnabled(True))
-            self.thread.finished.connect(self.progress_dialog.accept)
-    
     def report_progress(self, count):
         self.progress_dialog.ui.extract_progressBar.setValue(int(math.ceil(count/self.total_frames_no * 100)))
         self.progress_dialog.ui.extractProgress_label.setText(f"Extracting frames ({count}/{self.total_frames_no + 1})...")
+    
+    def report_progress_create(self, count):
+        self.progress_dialog.ui.extract_progressBar.setValue(int(math.ceil(count/self.total_frames_no * 100)))
+        self.progress_dialog.ui.extractProgress_label.setText(f"Creating video from photos ({count}/{self.total_frames_no + 1})...")
 
     def report_extract_result(self, code):
         if code == 1:
@@ -211,3 +272,17 @@ class ITDD(MainWindow):
             self.uiMain.statusbar.showMessage(f"Extraction cancelled by user.")
         else:
             self.uiMain.statusbar.showMessage(f"Extraction incomplete/failed.")
+
+    def report_create_result(self, code):
+        if code == 1:
+            self.uiMain.statusbar.showMessage(f"Video creation complete.")
+        elif code == 2:
+            self.uiMain.statusbar.showMessage(f"Video creation cancelled by user.")
+        elif code == 3:
+            self.uiMain.statusbar.showMessage(f"Video creation failed.")
+        elif code == 4:
+            self.uiMain.statusbar.showMessage(f"Video creation failed: invalid file format.")
+        elif code == 5:
+            self.uiMain.statusbar.showMessage(f"Video creation failed: different img format.")
+        elif code == 6:
+            self.uiMain.statusbar.showMessage(f"Video creation failed: different img size.")

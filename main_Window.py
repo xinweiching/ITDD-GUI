@@ -29,6 +29,11 @@ class MainWindow(QMainWindow):
         # Extract Video
         self.srcVideo_path = ""
         self.outputFolder_path = ""
+
+        # Create Video from Photos
+        self.srcPhotos_path = ""
+        self.outputVideo_path = ""
+
         self.progress_dialog = None
 
         self.initialise()
@@ -83,6 +88,15 @@ class MainWindow(QMainWindow):
         self.uiMain.srcVideoPath_label.setText(self.srcVideo_path)
         self.uiMain.selectOutputFolder_label.setText(self.outputFolder_path)
 
+        # set up create video page
+        self.uiMain.openSrcPhotosPath_Button.setIcon(icon)
+        self.uiMain.selectVidOutFolder_Button.setIcon(icon)
+        self.uiMain.srcPhotosPath_label.setText(self.srcPhotos_path)
+        self.uiMain.selectVidOutFolder_label.setText(self.outputVideo_path)
+        regex = QtCore.QRegExp("[a-z-A-Z-0-9_]+")
+        validator = QtGui.QRegExpValidator(regex)
+        self.uiMain.videoName_lineEdit.setValidator(validator)
+
     def get_conf(self): 
         return float(self.uiMain.confValue_spinBox.text()) / 100
 
@@ -112,6 +126,9 @@ class MainWindow(QMainWindow):
 
     def get_maxDet(self):
         return self.uiMain.maxDet_spinBox.value()
+    
+    def get_videoname(self):
+        return self.uiMain.videoName_lineEdit.text()
 
     def make_bold(self, text):
         return f"<span style=\" font-weight:600;\">{text}</span>"
@@ -220,6 +237,22 @@ class MainWindow(QMainWindow):
         
         return save_success, save_location
     
+    def select_input_folder(self):
+        dir = self.srcPhotos_path if self.srcPhotos_path != "" else "/home"
+        try:
+            new_input_path = QFileDialog.getExistingDirectory(self, 'Open File', dir)
+        except:
+            new_input_path = QFileDialog.getExistingDirectory(self, 'Open File', '/home')
+        
+        if new_input_path == '':
+            print("Load cancelled.")
+            self.uiMain.srcPhotosPath_label.setText(self.make_align(self.srcPhotos_path, 'right'))
+            return False
+        else: # if valid path chosen
+            self.srcPhotos_path = new_input_path
+            self.uiMain.srcPhotosPath_label.setText(self.make_align(self.srcPhotos_path, 'right'))
+            return True
+        
     def select_output_folder(self):
         dir = self.outputFolder_path if self.outputFolder_path != "" else "/home"
         try:
@@ -234,6 +267,22 @@ class MainWindow(QMainWindow):
         else: # if valid path chosen
             self.outputFolder_path = new_output_path
             self.uiMain.selectOutputFolder_label.setText(self.make_align(self.outputFolder_path, 'right'))
+            return True
+        
+    def select_outputvid_folder(self):
+        dir = self.outputVideo_path if self.outputVideo_path != "" else "/home"
+        try:
+            new_output_path = QFileDialog.getExistingDirectory(self, 'Open File', dir)
+        except:
+            new_output_path = QFileDialog.getExistingDirectory(self, 'Open File', '/home')
+        
+        if new_output_path == '':
+            print("Load cancelled.")
+            self.uiMain.selectVidOutFolder_label.setText(self.make_align(self.outputVideo_path, 'right'))
+            return False
+        else: # if valid path chosen
+            self.outputVideo_path = new_output_path
+            self.uiMain.selectVidOutFolder_label.setText(self.make_align(self.outputVideo_path, 'right'))
             return True
 
     def set_image(self, image):
@@ -283,6 +332,15 @@ class MainWindow(QMainWindow):
             self.uiMain.hideConf_checkBox.setEnabled(True)
         
 
+    def dialog_confirm_create(self, total_frames):
+        response = QMessageBox.question(self, "Confirm Video Creation", 
+                                        f"Video is to be created with {total_frames} images. This may require some time to process.\n\nAre you sure?",
+                                        QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if response == QMessageBox.Yes: 
+            return True
+        else: 
+            return False
+        
     def dialog_confirm_extract(self, total_frames):
         response = QMessageBox.question(self, "Confirm Extraction", 
                                         f"{total_frames} images will be extracted. This may require a large amount of space and time to process.\n\nAre you sure?",
@@ -297,6 +355,12 @@ class MainWindow(QMainWindow):
             error_text = "No video was selected.\n\nPlease choose a video for extraction."
         elif code == 1:
             error_text = "No output folder was selected.\n\nPlease choose an output folder for frames to be extracted to."
+        elif code == 2:
+            error_text = "No input folder was selected.\n\nPlease choose a folder of images to create video from."
+        elif code == 3:
+            error_text = "No output folder was selected.\n\nPlease choose an output folder for video to be saved."
+        elif code == 4:
+            error_text = "Please enter a video name."
         error_MsgBox = QMessageBox(self)
         error_MsgBox.setWindowTitle("ERROR: Missing Paths")
         error_MsgBox.setIcon(QMessageBox.Warning)
