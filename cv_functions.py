@@ -207,3 +207,110 @@ class VideoCreator(QObject):
     
     def stop_run(self, bool):
         self.run_bool = not bool
+
+# TODO
+class BatchPredictor(QObject):
+    finished = pyqtSignal(int)
+    progress = pyqtSignal(int)
+    def __init__(self, input_folder_path, output_folder_path, 
+                 model, conf, iou, imgsz, max_det, preprocess, 
+                 hide_conf, hide_boxes, hide_labels):
+        super().__init__()
+        self.count = 0
+        self.input_path = input_folder_path
+        self.output_path = output_folder_path
+        
+        # prediction params
+        self.model = model
+        self.conf = conf
+        self.iou = iou
+        self.imgsz = imgsz
+        self.max_det = max_det
+        self.preprocess = preprocess
+
+        # plotting params
+        self.hide_conf = hide_conf
+        self.hide_boxes = hide_boxes
+        self.hide_labels = hide_labels
+
+        self.supported_formats = ['.jpg', '.png', '.jpeg']
+        self.currentProcessedPath = 'assets/processed_image_batch.jpg'
+        self.valid_images_ls = self.get_valid_images()
+        self.image_count = len(self.valid_images_ls)
+
+    def get_file_format(self, file_name):
+        return '.' + file_name.split('.')[-1].lower()
+    
+    def get_img_size(self, file_name):
+        im = cv2.imread(f"{self.input_path}/{file_name}")
+        return im.shape
+    
+    def get_valid_images(self):
+        valid_images = []
+        # check folder contents
+        image_list = os.listdir(self.input_path)
+        # go through every image in folder
+        for image_name in image_list:
+            if self.get_file_format(image_name) in self.supported_formats:
+                valid_images.append(image_name)
+        return valid_images
+    
+    def predict(self):
+        if self.preprocess: 
+            path = self.currentProcessedPath
+        else:
+            path = self.currentImagePath
+
+        results = self.model(source=path, 
+                             conf=self.conf, 
+                             iou=self.iou, 
+                             imgsz=self.imgsz,
+                             max_det=self.max_det)
+                             
+        for result in results:
+            cls = result.boxes.cls
+            conf = result.boxes.conf
+
+        # get list of classes and conf and set them
+        classes_ls = [int(i) for i in cls]
+        conf_ls = [float(j) for j in conf]
+        return result, classes_ls, conf_ls
+
+    def run(self):
+        self.run_bool = True
+        # go through every image 
+        for image_name in self.valid_images_ls:
+            try:
+                print("hello.")
+                self.currentImagePath = f"{self.input_path}/{image_name}"
+                img = Image.open(self.currentImagePath)
+                self.currentImage = img
+                print("image opened.")
+                self.currentImageProcessed = incr_contrast(self.currentImage, clip_limit=5)
+                self.currentImageProcessed.save(self.currentProcessedPath)
+                result, classes_ls, conf_ls = self.predict()
+                print("about to plot.")
+
+                # plot predictions on image
+                array = result.plot(conf=self.hide_conf,
+                                boxes=self.hide_boxes,
+                                labels=self.hide_labels)
+                array = array[:, :, ::-1]
+                self.predictedImage = Image.fromarray(array)
+
+                # save predicted image 
+                self.predictedImage.save(f"{self.output_path}/{image_name}")
+            except Exception as e:
+                print(e)
+                print(f"Exception occurred when processing image {image_name}.")
+
+            self.count += 1
+            self.progress.emit(self.count)
+
+        if not self.run_bool: # if cancelled by user
+            self.finished.emit(2)
+        else: # else it is complete
+            self.finished.emit(1)
+    
+    def stop_run(self, bool):
+        self.run_bool = not bool

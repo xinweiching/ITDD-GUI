@@ -4,7 +4,7 @@ from PIL import Image
 from ultralytics import YOLO
 from PyQt5 import QtCore
 from PyQt5.QtCore import QObject, QThread, pyqtSignal
-from cv_functions import incr_contrast, Extractor, VideoCreator
+from cv_functions import incr_contrast, Extractor, VideoCreator, BatchPredictor
 from time import sleep
 
 
@@ -16,9 +16,12 @@ class ITDD(MainWindow):
         self.uiMain.createVideo_Button.clicked.connect(self.createVideoButton_clicked)
         self.uiMain.extract_Button.clicked.connect(self.extractButton_clicked)
         self.uiMain.openFile_Button.clicked.connect(self.openFileButton_clicked)
+        self.uiMain.openBatchSrc_Button.clicked.connect(self.openBatchInButton_clicked)
+        self.uiMain.openBatchOut_Button.clicked.connect(self.openBatchOutButton_clicked)
         self.uiMain.openSrcPhotosPath_Button.clicked.connect(self.openSrcPhotosPathButton_clicked)
         self.uiMain.openSrcVideo_Button.clicked.connect(self.openSrcVideoButton_clicked)
         self.uiMain.predict_Button.clicked.connect(self.predictButton_clicked)
+        self.uiMain.predict_Button_2.clicked.connect(self.predictBatchButton_clicked)
         self.uiMain.selectOutputFolder_Button.clicked.connect(self.selectOutputFolder_clicked)
         self.uiMain.selectVidOutFolder_Button.clicked.connect(self.selectOutputVidFolder_clicked)
         self.uiMain.saveFile_Button.clicked.connect(self.saveFileButton_clicked)
@@ -31,6 +34,7 @@ class ITDD(MainWindow):
         # Prediction
         self.model_path = "models/ITDD_v1.pt"
         self.model = YOLO(self.model_path)
+        self.model.fuse() # fuses model for faster inference
         self.classes = {
             0: 'asphalts', 
             1: 'interlocking-tiles', 
@@ -64,7 +68,6 @@ class ITDD(MainWindow):
             self.dialog_missingPaths(0)
         if self.outputFolder_path == "":
             self.dialog_missingPaths(1)
-        # self.uiMain.extract_Button.setEnabled(True)
     
     def openFileButton_clicked(self):
         self.uiMain.openFile_Button.setEnabled(False)
@@ -76,6 +79,16 @@ class ITDD(MainWindow):
             self.uiMain.statusbar.showMessage("Load image cancelled.")
 
         self.uiMain.openFile_Button.setEnabled(True)
+    
+    def openBatchInButton_clicked(self):
+        self.uiMain.openBatchSrc_Button.setEnabled(False)
+        self.select_batchIn_path()
+        self.uiMain.openBatchSrc_Button.setEnabled(True)
+
+    def openBatchOutButton_clicked(self):
+        self.uiMain.openBatchOut_Button.setEnabled(False)
+        self.select_batchOut_path()
+        self.uiMain.openBatchOut_Button.setEnabled(True)
     
     def openSrcPhotosPathButton_clicked(self):
         self.uiMain.openSrcPhotosPath_Button.setEnabled(False)
@@ -166,10 +179,19 @@ class ITDD(MainWindow):
             self.set_image(self.predictedImage)
 
         else:
-            self.noImage_dialog(0)
+            self.dialog_noImage(0)
 
         self.uiMain.statusbar.showMessage("Predictions done.")
         self.uiMain.predict_Button.setEnabled(True)
+
+    def predictBatchButton_clicked(self):
+        # TODO : get the correct paths
+        if self.batchIn_path != "" and self.batchOut_path != "":
+            self.predictBatch_image()
+        if self.batchIn_path == "":
+            self.dialog_missingPaths(5)
+        if self.batchOut_path == "":
+            self.dialog_missingPaths(6)
 
     # ------------- FUNCTIONS ------------- #
     
@@ -257,6 +279,39 @@ class ITDD(MainWindow):
         conf_ls = [float(j) for j in conf]
         return result, classes_ls, conf_ls
     
+    def predictBatch_image(self):
+        self.thread = QThread()
+        self.worker = BatchPredictor(input_folder_path=self.batchIn_path,
+                                     output_folder_path=self.batchOut_path,
+                                     model=self.model, conf=self.get_conf(), iou=self.get_iou(), imgsz=self.get_imageSize(), max_det=self.get_maxDet(), preprocess=self.get_preprocess(),
+                                     hide_conf=self.get_hideConf(), hide_boxes=self.get_hideBoxes(), hide_labels=self.get_hideLabels()
+                                     )
+        self.worker.moveToThread(self.thread)
+
+        self.total_frames_no = self.worker.image_count
+        # give warning for video with many frames 
+        proceed = self.dialog_confirm_predict(self.total_frames_no)
+        
+        if proceed:
+            self.dialog_progress_init() # init progress dialog
+            # connect signals 
+            self.thread.started.connect(self.dialog_progress_start)
+            self.thread.started.connect(self.worker.run)
+            self.worker.finished.connect(self.thread.quit)
+            self.worker.finished.connect(self.worker.deleteLater)
+            self.thread.finished.connect(self.thread.deleteLater)
+            self.worker.progress.connect(self.report_progress_predict)
+            self.progress_dialog.ui.cancelExtract_Button.clicked.connect(lambda: self.worker.stop_run(True))
+
+            # start thread
+            self.thread.start()
+            self.uiMain.predict_Button_2.setEnabled(False)
+
+            # when complete
+            self.worker.finished.connect(self.report_extract_result)
+            self.thread.finished.connect(lambda: self.uiMain.predict_Button_2.setEnabled(True))
+            self.thread.finished.connect(self.progress_dialog.accept)
+    
     def report_progress(self, count):
         self.progress_dialog.ui.extract_progressBar.setValue(int(math.ceil(count/self.total_frames_no * 100)))
         self.progress_dialog.ui.extractProgress_label.setText(f"Extracting frames ({count}/{self.total_frames_no + 1})...")
@@ -264,6 +319,10 @@ class ITDD(MainWindow):
     def report_progress_create(self, count):
         self.progress_dialog.ui.extract_progressBar.setValue(int(math.ceil(count/self.total_frames_no * 100)))
         self.progress_dialog.ui.extractProgress_label.setText(f"Creating video from photos ({count}/{self.total_frames_no + 1})...")
+    
+    def report_progress_predict(self, count):
+        self.progress_dialog.ui.extract_progressBar.setValue(int(math.ceil(count/self.total_frames_no * 100)))
+        self.progress_dialog.ui.extractProgress_label.setText(f"Creating predicted photos ({count}/{self.total_frames_no + 1})...")
 
     def report_extract_result(self, code):
         if code == 1:
@@ -278,6 +337,7 @@ class ITDD(MainWindow):
             self.uiMain.statusbar.showMessage(f"Video creation complete.")
         elif code == 2:
             self.uiMain.statusbar.showMessage(f"Video creation cancelled by user.")
+            # TODO: delete half done video
         elif code == 3:
             self.uiMain.statusbar.showMessage(f"Video creation failed.")
         elif code == 4:

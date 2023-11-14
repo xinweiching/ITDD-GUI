@@ -26,6 +26,10 @@ class MainWindow(QMainWindow):
         self.predictedImage = None
         self.predict_data = None
 
+        # Batch predict
+        self.batchIn_path = ""
+        self.batchOut_path = ""
+
         # Extract Video
         self.srcVideo_path = ""
         self.outputFolder_path = ""
@@ -43,11 +47,17 @@ class MainWindow(QMainWindow):
         self.move((resolution.width() // 2) - (self.frameSize().width() // 2),
                   (resolution.height() // 2) - int(round(self.frameSize().height() / 1.67, 0)))
 
-    def change_conf(self):
-        self.uiMain.conf_Slider.setValue(self.uiMain.confValue_spinBox.value())
-    
-    def change_iou(self):
-        self.uiMain.IoU_Slider.setValue(self.uiMain.iouValue_spinBox.value())
+    def change_conf(self, i):
+        if i == 1:
+            self.uiMain.conf_Slider.setValue(self.uiMain.confValue_spinBox.value())
+        elif i == 2:
+            self.uiMain.conf_Slider_2.setValue(self.uiMain.confValue_spinBox_2.value())
+
+    def change_iou(self, i):
+        if i == 1:
+            self.uiMain.IoU_Slider.setValue(self.uiMain.iouValue_spinBox.value())
+        elif i == 2:
+            self.uiMain.IoU_Slider_2.setValue(self.uiMain.iouValue_spinBox_2.value())
 
     def change_model(self):
         # checks it back if unchecked
@@ -62,22 +72,31 @@ class MainWindow(QMainWindow):
         self.uiMain.modelV1_radioButton.toggled.connect(self.change_model)
 
         # set up sliders
-        self.uiMain.conf_Slider.valueChanged.connect(self.slide_conf)
-        self.uiMain.IoU_Slider.valueChanged.connect(self.slide_iou)
+        self.uiMain.conf_Slider.valueChanged.connect(lambda: self.slide_conf(1))
+        self.uiMain.IoU_Slider.valueChanged.connect(lambda: self.slide_iou(1))
         self.uiMain.conf_Slider.setValue(50)
         self.uiMain.IoU_Slider.setValue(70)
-        self.uiMain.confValue_spinBox.valueChanged.connect(self.change_conf)
-        self.uiMain.iouValue_spinBox.valueChanged.connect(self.change_iou)
+        self.uiMain.confValue_spinBox.valueChanged.connect(lambda: self.change_conf(1))
+        self.uiMain.iouValue_spinBox.valueChanged.connect(lambda: self.change_iou(1))
+
+        self.uiMain.conf_Slider_2.valueChanged.connect(lambda: self.slide_conf(2))
+        self.uiMain.IoU_Slider_2.valueChanged.connect(lambda: self.slide_iou(2))
+        self.uiMain.conf_Slider_2.setValue(50)
+        self.uiMain.IoU_Slider_2.setValue(70)
+        self.uiMain.confValue_spinBox_2.valueChanged.connect(lambda: self.change_conf(2))
+        self.uiMain.iouValue_spinBox_2.valueChanged.connect(lambda: self.change_iou(2))
 
         # set up display photo
         self.set_image_from_path("assets/placeholder.jpg")
 
         # set up default checkbox
         self.uiMain.preprocess_checkBox.setChecked(True)
-        self.uiMain.hideBoxes_checkBox.stateChanged.connect(self.update_hideCheckBoxes)
-        self.uiMain.hideLabels_checkBox.stateChanged.connect(self.update_hideCheckBoxes)
+        self.uiMain.hideBoxes_checkBox.stateChanged.connect(lambda: self.update_hideCheckBoxes(1))
+        self.uiMain.hideLabels_checkBox.stateChanged.connect(lambda: self.update_hideCheckBoxes(1))
+        self.uiMain.preprocess_checkBox_2.setChecked(True)
+        self.uiMain.hideBoxes_checkBox_2.stateChanged.connect(lambda: self.update_hideCheckBoxes(2))
+        self.uiMain.hideLabels_checkBox_2.stateChanged.connect(lambda: self.update_hideCheckBoxes(2))
 
-        self.uiMain.tabWidget.setCurrentIndex(0) # image segmentation page
         self.uiMain.stackedWidget.setCurrentIndex(1) # photo mode
 
         # set up extract video page
@@ -97,14 +116,26 @@ class MainWindow(QMainWindow):
         validator = QtGui.QRegExpValidator(regex)
         self.uiMain.videoName_lineEdit.setValidator(validator)
 
+        # show image segment page first
+        self.uiMain.tabWidget.setCurrentIndex(0)
+
     def get_conf(self): 
-        return float(self.uiMain.confValue_spinBox.text()) / 100
+        if self.uiMain.tabWidget.currentIndex() == 0:
+            return float(self.uiMain.confValue_spinBox.text()) / 100
+        elif self.uiMain.tabWidget.currentIndex() == 1:
+            return float(self.uiMain.confValue_spinBox.text()) / 100
 
     def get_iou(self):
-        return float(self.uiMain.iouValue_spinBox.text()) / 100
+        if self.uiMain.tabWidget.currentIndex() == 0:
+            return float(self.uiMain.iouValue_spinBox.text()) / 100
+        elif self.uiMain.tabWidget.currentIndex() == 1:
+            return float(self.uiMain.iouValue_spinBox_2.text()) / 100
 
     def get_preprocess(self):
-        return self.uiMain.preprocess_checkBox.isChecked()
+        if self.uiMain.tabWidget.currentIndex() == 0:
+            return self.uiMain.preprocess_checkBox.isChecked()
+        elif self.uiMain.tabWidget.currentIndex() == 1:
+            return self.uiMain.preprocess_checkBox_2.isChecked()
     
     def get_preprocessVid(self):
         return self.uiMain.preprocessFrames_checkBox.isChecked()
@@ -113,19 +144,34 @@ class MainWindow(QMainWindow):
         return self.uiMain.resize_checkBox.isChecked()
     
     def get_hideLabels(self):
-        return not self.uiMain.hideLabels_checkBox.isChecked()
+        if self.uiMain.tabWidget.currentIndex() == 0:
+            return not self.uiMain.hideLabels_checkBox.isChecked()
+        elif self.uiMain.tabWidget.currentIndex() == 1:
+            return not self.uiMain.hideLabels_checkBox_2.isChecked()
     
     def get_hideConf(self):
-        return not self.uiMain.hideConf_checkBox.isChecked()
+        if self.uiMain.tabWidget.currentIndex() == 0:
+            return not self.uiMain.hideConf_checkBox.isChecked()
+        elif self.uiMain.tabWidget.currentIndex() == 1:
+            return not self.uiMain.hideConf_checkBox_2.isChecked()
     
     def get_hideBoxes(self):
-        return not self.uiMain.hideBoxes_checkBox.isChecked()
+        if self.uiMain.tabWidget.currentIndex() == 0:
+            return not self.uiMain.hideBoxes_checkBox.isChecked()
+        elif self.uiMain.tabWidget.currentIndex() == 1:
+            return not self.uiMain.hideBoxes_checkBox_2.isChecked()
     
     def get_imageSize(self):
-        return self.uiMain.imageSize_spinBox.value()
+        if self.uiMain.tabWidget.currentIndex() == 0:
+            return self.uiMain.imageSize_spinBox.value()
+        elif self.uiMain.tabWidget.currentIndex() == 1:
+            return self.uiMain.imageSize_spinBox_2.value()
 
     def get_maxDet(self):
-        return self.uiMain.maxDet_spinBox.value()
+        if self.uiMain.tabWidget.currentIndex() == 0:
+            return self.uiMain.maxDet_spinBox.value()
+        elif self.uiMain.tabWidget.currentIndex() == 1:
+            return self.uiMain.maxDet_spinBox_2.value()
     
     def get_videoname(self):
         return self.uiMain.videoName_lineEdit.text()
@@ -237,6 +283,38 @@ class MainWindow(QMainWindow):
         
         return save_success, save_location
     
+    def select_batchIn_path(self):
+        dir = self.batchIn_path if self.batchIn_path != "" else "/home"
+        try:
+            new_input_path = QFileDialog.getExistingDirectory(self, 'Open File', dir)
+        except:
+            new_input_path = QFileDialog.getExistingDirectory(self, 'Open File', '/home')
+        
+        if new_input_path == '':
+            print("Load cancelled.")
+            self.uiMain.batchSrc_label.setText(self.make_align(self.batchIn_path, 'right'))
+            return False
+        else: # if valid path chosen
+            self.batchIn_path = new_input_path
+            self.uiMain.batchSrc_label.setText(self.make_align(self.batchIn_path, 'right'))
+            return True
+        
+    def select_batchOut_path(self):
+        dir = self.batchOut_path if self.batchOut_path != "" else "/home"
+        try:
+            new_input_path = QFileDialog.getExistingDirectory(self, 'Open File', dir)
+        except:
+            new_input_path = QFileDialog.getExistingDirectory(self, 'Open File', '/home')
+        
+        if new_input_path == '':
+            print("Load cancelled.")
+            self.uiMain.batchOut_label.setText(self.make_align(self.batchOut_path, 'right'))
+            return False
+        else: # if valid path chosen
+            self.batchOut_path = new_input_path
+            self.uiMain.batchOut_label.setText(self.make_align(self.batchOut_path, 'right'))
+            return True
+        
     def select_input_folder(self):
         dir = self.srcPhotos_path if self.srcPhotos_path != "" else "/home"
         try:
@@ -297,39 +375,72 @@ class MainWindow(QMainWindow):
     def set_imageSizeInfo(self, width, height):
         self.uiMain.imageSizeInfo_label.setText(self.make_bold(f"{width} x {height} px"))
 
-    def slide_conf(self):
-        self.uiMain.confValue_spinBox.setValue(self.uiMain.conf_Slider.value())
+    def slide_conf(self, i):
+        if i == 1:
+            self.uiMain.confValue_spinBox.setValue(self.uiMain.conf_Slider.value())
+        elif i == 2:
+            self.uiMain.confValue_spinBox_2.setValue(self.uiMain.conf_Slider_2.value())
 
-    def slide_iou(self):
-        self.uiMain.iouValue_spinBox.setValue(self.uiMain.IoU_Slider.value())
+    def slide_iou(self, i):
+        if i == 1:
+            self.uiMain.iouValue_spinBox.setValue(self.uiMain.IoU_Slider.value())
+        elif i == 2:
+            self.uiMain.iouValue_spinBox_2.setValue(self.uiMain.IoU_Slider_2.value())
 
-    def update_hideCheckBoxes(self):
+    def update_hideCheckBoxes(self, i):
+        if i == 1:
+            if self.uiMain.hideBoxes_checkBox.isChecked():
+                # check and disable hide labels and conf
+                self.uiMain.hideLabels_checkBox.setChecked(True)
+                self.uiMain.hideConf_checkBox.setChecked(True)
+                self.uiMain.hideLabels_checkBox.setEnabled(False)
+                self.uiMain.hideConf_checkBox.setEnabled(False)
 
-        if self.uiMain.hideBoxes_checkBox.isChecked():
-            # check and disable hide labels and conf
-            self.uiMain.hideLabels_checkBox.setChecked(True)
-            self.uiMain.hideConf_checkBox.setChecked(True)
-            self.uiMain.hideLabels_checkBox.setEnabled(False)
-            self.uiMain.hideConf_checkBox.setEnabled(False)
+            elif not self.uiMain.hideBoxes_checkBox.isChecked() and not self.uiMain.hideLabels_checkBox.isEnabled() and not self.uiMain.hideConf_checkBox.isEnabled():
+                # uncheck and enable the two hide checkboxes below
+                self.uiMain.hideLabels_checkBox.setChecked(False)
+                self.uiMain.hideConf_checkBox.setChecked(False)
+                self.uiMain.hideLabels_checkBox.setEnabled(True)
+                self.uiMain.hideConf_checkBox.setEnabled(True)
 
-        elif not self.uiMain.hideBoxes_checkBox.isChecked() and not self.uiMain.hideLabels_checkBox.isEnabled() and not self.uiMain.hideConf_checkBox.isEnabled():
-            # uncheck and enable the two hide checkboxes below
-            self.uiMain.hideLabels_checkBox.setChecked(False)
-            self.uiMain.hideConf_checkBox.setChecked(False)
-            self.uiMain.hideLabels_checkBox.setEnabled(True)
-            self.uiMain.hideConf_checkBox.setEnabled(True)
+            elif self.uiMain.hideLabels_checkBox.isChecked() and self.uiMain.hideLabels_checkBox.isEnabled():
+                # check and disable hide conf
+                self.uiMain.hideConf_checkBox.setChecked(True)
+                self.uiMain.hideConf_checkBox.setEnabled(False)
 
-        elif self.uiMain.hideLabels_checkBox.isChecked() and self.uiMain.hideLabels_checkBox.isEnabled():
-            # check and disable hide conf
-            self.uiMain.hideConf_checkBox.setChecked(True)
-            self.uiMain.hideConf_checkBox.setEnabled(False)
+            else:
+                # uncheck other hide checkboxes & enable
+                self.uiMain.hideLabels_checkBox.setChecked(False)
+                self.uiMain.hideConf_checkBox.setChecked(False)
+                self.uiMain.hideLabels_checkBox.setEnabled(True)
+                self.uiMain.hideConf_checkBox.setEnabled(True)
 
-        else:
-            # uncheck other hide checkboxes & enable
-            self.uiMain.hideLabels_checkBox.setChecked(False)
-            self.uiMain.hideConf_checkBox.setChecked(False)
-            self.uiMain.hideLabels_checkBox.setEnabled(True)
-            self.uiMain.hideConf_checkBox.setEnabled(True)
+        elif i == 2:
+            if self.uiMain.hideBoxes_checkBox_2.isChecked():
+                # check and disable hide labels and conf
+                self.uiMain.hideLabels_checkBox_2.setChecked(True)
+                self.uiMain.hideConf_checkBox_2.setChecked(True)
+                self.uiMain.hideLabels_checkBox_2.setEnabled(False)
+                self.uiMain.hideConf_checkBox_2.setEnabled(False)
+
+            elif not self.uiMain.hideBoxes_checkBox_2.isChecked() and not self.uiMain.hideLabels_checkBox_2.isEnabled() and not self.uiMain.hideConf_checkBox_2.isEnabled():
+                # uncheck and enable the two hide checkboxes below
+                self.uiMain.hideLabels_checkBox_2.setChecked(False)
+                self.uiMain.hideConf_checkBox_2.setChecked(False)
+                self.uiMain.hideLabels_checkBox_2.setEnabled(True)
+                self.uiMain.hideConf_checkBox_2.setEnabled(True)
+
+            elif self.uiMain.hideLabels_checkBox_2.isChecked() and self.uiMain.hideLabels_checkBox_2.isEnabled():
+                # check and disable hide conf
+                self.uiMain.hideConf_checkBox_2.setChecked(True)
+                self.uiMain.hideConf_checkBox_2.setEnabled(False)
+
+            else:
+                # uncheck other hide checkboxes & enable
+                self.uiMain.hideLabels_checkBox_2.setChecked(False)
+                self.uiMain.hideConf_checkBox_2.setChecked(False)
+                self.uiMain.hideLabels_checkBox_2.setEnabled(True)
+                self.uiMain.hideConf_checkBox_2.setEnabled(True)
         
 
     def dialog_confirm_create(self, total_frames):
@@ -349,6 +460,15 @@ class MainWindow(QMainWindow):
             return True
         else: 
             return False
+        
+    def dialog_confirm_predict(self, total_frames):
+        response = QMessageBox.question(self, "Confirm Prediction", 
+                                        f"{total_frames} images will be predicted. This may require a large amount of space and time to process.\n\nAre you sure?",
+                                        QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if response == QMessageBox.Yes: 
+            return True
+        else: 
+            return False
 
     def dialog_missingPaths(self, code):
         if code == 0:
@@ -361,6 +481,10 @@ class MainWindow(QMainWindow):
             error_text = "No output folder was selected.\n\nPlease choose an output folder for video to be saved."
         elif code == 4:
             error_text = "Please enter a video name."
+        elif code == 5:
+            error_text = "No input folder was selected.\n\nPlease choose a folder of images to predict."
+        elif code == 6:
+            error_text = "No output folder was selected.\n\nPlease choose an output folder."
         error_MsgBox = QMessageBox(self)
         error_MsgBox.setWindowTitle("ERROR: Missing Paths")
         error_MsgBox.setIcon(QMessageBox.Warning)
@@ -391,6 +515,5 @@ class MainWindow(QMainWindow):
         if self.progress_dialog != None:
             self.progress_dialog.ui.extract_progressBar.setValue(0)
             self.progress_dialog.show()
-            print("self.progress_dialog is executed.")
         else:
             print("self.progress_dialog is None!")
